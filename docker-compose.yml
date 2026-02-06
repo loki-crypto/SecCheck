@@ -1,0 +1,44 @@
+services:
+  security-checklist:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: security-checklist:latest
+    container_name: security-checklist
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=devsecops-security-checklist-secret-key-2024
+      - DATABASE_URL=sqlite+aiosqlite:///./data/security_checklist.db
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=false
+      - UPLOAD_DIR=/app/uploads
+      - CORS_ORIGINS=["http://localhost:8000","http://127.0.0.1:8000"]
+    volumes:
+      - security_data:/app/data
+      - security_uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - security-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  security_data:
+    driver: local
+  security_uploads:
+    driver: local
+
+networks:
+  security-network:
+    driver: bridge

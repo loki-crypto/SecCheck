@@ -1,0 +1,556 @@
+{% extends "base.html" %}
+
+{% block title %}Relatórios - Security Checklist{% endblock %}
+
+{% block breadcrumb %}
+<a href="/">Dashboard</a>
+<span>/</span>
+<span class="current">Relatórios</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div>
+        <h1 class="page-title">Relatórios de Segurança</h1>
+        <p class="page-subtitle">Gere e exporte relatórios de avaliação de segurança</p>
+    </div>
+</div>
+
+<!-- Report Generator -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">
+            <i class="fas fa-file-alt" style="color: var(--accent-primary);"></i>
+            Gerar Relatório
+        </h2>
+    </div>
+    <div style="padding: 24px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label">Aplicação *</label>
+                <select class="form-select" id="reportAppSelect" onchange="loadAppSummary()">
+                    <option value="">Selecione uma aplicação...</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label">Tipo de Relatório</label>
+                <select class="form-select" id="reportType">
+                    <option value="full">Completo (todos os controles)</option>
+                    <option value="failed">Apenas Reprovados</option>
+                    <option value="executive">Executivo (resumo)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+                <label class="form-label">Formato</label>
+                <select class="form-select" id="reportFormat">
+                    <option value="html">HTML</option>
+                    <option value="pdf">PDF</option>
+                    <option value="json">JSON</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Report Options -->
+        <div style="margin-top: 20px; padding: 16px; background: var(--bg-tertiary); border-radius: var(--border-radius);">
+            <label class="form-label" style="margin-bottom: 12px;">Incluir no Relatório</label>
+            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="includeEvidence" checked style="accent-color: var(--accent-primary);">
+                    <span>Evidências</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="includeHistory" style="accent-color: var(--accent-primary);">
+                    <span>Histórico de Alterações</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="includeTests" checked style="accent-color: var(--accent-primary);">
+                    <span>Resultados de Testes</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="includeMappings" checked style="accent-color: var(--accent-primary);">
+                    <span>Mapeamentos OWASP</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="includeRecommendations" checked style="accent-color: var(--accent-primary);">
+                    <span>Recomendações</span>
+                </label>
+            </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 12px;">
+            <button class="btn btn-primary btn-lg" id="generateBtn" disabled onclick="generateReport()">
+                <i class="fas fa-file-export"></i>
+                <span>Gerar Relatório</span>
+            </button>
+            <button class="btn btn-secondary btn-lg" id="previewBtn" disabled onclick="previewReport()">
+                <i class="fas fa-eye"></i>
+                <span>Visualizar</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Application Summary Preview -->
+<div id="appSummary" style="display: none; margin-top: 20px;">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-content">
+                <div class="stat-icon" style="background: rgba(52, 152, 219, 0.1); color: var(--info);">
+                    <i class="fas fa-clipboard-list"></i>
+                </div>
+                <div>
+                    <div class="stat-value" id="summaryTotal">0</div>
+                    <div class="stat-label">Total de Controles</div>
+                </div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-content">
+                <div class="stat-icon" style="background: rgba(46, 204, 113, 0.1); color: var(--success);">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div>
+                    <div class="stat-value" id="summaryApproved">0</div>
+                    <div class="stat-label">Aprovados</div>
+                </div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-content">
+                <div class="stat-icon" style="background: rgba(231, 76, 60, 0.1); color: var(--danger);">
+                    <i class="fas fa-times-circle"></i>
+                </div>
+                <div>
+                    <div class="stat-value" id="summaryFailed">0</div>
+                    <div class="stat-label">Reprovados</div>
+                </div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-content">
+                <div class="stat-icon" style="background: rgba(255, 215, 0, 0.1); color: var(--accent-primary);">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <div>
+                    <div class="stat-value" id="summaryScore">0%</div>
+                    <div class="stat-label">Score de Segurança</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    <div class="card" style="margin-top: 20px;">
+        <div class="card-header">
+            <h2 class="card-title">Resumo por Categoria</h2>
+        </div>
+        <div id="categoryBreakdown" style="padding: 20px;">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+
+    <!-- Severity Breakdown -->
+    <div class="card" style="margin-top: 20px;">
+        <div class="card-header">
+            <h2 class="card-title">Controles Críticos Reprovados</h2>
+        </div>
+        <div id="criticalFailed">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+</div>
+
+<!-- Report Preview Modal -->
+<div class="modal-overlay" id="previewModal">
+    <div class="modal" style="max-width: 900px; max-height: 90vh;">
+        <div class="modal-header">
+            <h3 class="modal-title">Prévia do Relatório</h3>
+            <button class="modal-close" onclick="closeModal('previewModal')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body" style="max-height: calc(90vh - 120px); overflow-y: auto;">
+            <div id="previewContent">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentSummary = null;
+
+    async function loadInitialData() {
+        const apps = await App.api('/api/applications');
+        const select = document.getElementById('reportAppSelect');
+        
+        apps.forEach(app => {
+            const option = document.createElement('option');
+            option.value = app.id;
+            option.textContent = `${app.name} (${app.environment.toUpperCase()})`;
+            select.appendChild(option);
+        });
+    }
+
+    async function loadAppSummary() {
+        const appId = document.getElementById('reportAppSelect').value;
+        
+        if (!appId) {
+            document.getElementById('appSummary').style.display = 'none';
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('previewBtn').disabled = true;
+            currentSummary = null;
+            return;
+        }
+
+        try {
+            const summary = await App.api(`/api/reports/summary/${appId}`);
+            currentSummary = summary;
+            
+            // Update stats
+            document.getElementById('summaryTotal').textContent = summary.total_checks || 0;
+            document.getElementById('summaryApproved').textContent = summary.status_counts?.approved || 0;
+            document.getElementById('summaryFailed').textContent = summary.status_counts?.failed || 0;
+            
+            const applicable = (summary.total_checks || 0) - (summary.status_counts?.na || 0);
+            const approved = summary.status_counts?.approved || 0;
+            const score = applicable > 0 ? Math.round(approved / applicable * 100) : 0;
+            document.getElementById('summaryScore').textContent = score + '%';
+
+            // Category breakdown
+            renderCategoryBreakdown(summary.category_summary || []);
+            
+            // Critical failed
+            renderCriticalFailed(summary.failed_by_severity || {});
+
+            document.getElementById('appSummary').style.display = 'block';
+            document.getElementById('generateBtn').disabled = false;
+            document.getElementById('previewBtn').disabled = false;
+
+        } catch (error) {
+            App.toast('Erro ao carregar resumo: ' + error.message, 'error');
+        }
+    }
+
+    function renderCategoryBreakdown(categories) {
+        const container = document.getElementById('categoryBreakdown');
+        
+        if (!categories || categories.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary);">Nenhum dado disponível</p>';
+            return;
+        }
+
+        container.innerHTML = categories.map(cat => {
+            const total = cat.total || 0;
+            const approved = cat.approved || 0;
+            const failed = cat.failed || 0;
+            const progress = total > 0 ? Math.round(approved / total * 100) : 0;
+            
+            return `
+                <div style="margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div>
+                            <span style="color: var(--accent-primary); font-weight: 600;">${cat.code}</span>
+                            <span style="margin-left: 8px;">${App.escapeHtml(cat.name)}</span>
+                        </div>
+                        <div style="display: flex; gap: 16px; font-size: 14px;">
+                            <span style="color: var(--success);">${approved} aprovados</span>
+                            <span style="color: var(--danger);">${failed} reprovados</span>
+                            <span style="color: var(--text-secondary);">${total} total</span>
+                        </div>
+                    </div>
+                    <div style="background: var(--bg-tertiary); border-radius: 10px; height: 8px; overflow: hidden;">
+                        <div style="height: 100%; transition: width 0.3s; display: flex;">
+                            <div style="width: ${approved / total * 100}%; background: var(--success);"></div>
+                            <div style="width: ${failed / total * 100}%; background: var(--danger);"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderCriticalFailed(severityCounts) {
+        const container = document.getElementById('criticalFailed');
+        
+        const critical = severityCounts.critical || 0;
+        const high = severityCounts.high || 0;
+        
+        if (critical === 0 && high === 0) {
+            container.innerHTML = `
+                <div class="empty-state" style="padding: 40px;">
+                    <i class="fas fa-shield-alt" style="color: var(--success);"></i>
+                    <h3>Nenhum controle crítico reprovado</h3>
+                    <p>Não há controles de severidade crítica ou alta reprovados</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div style="padding: 20px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                    <div style="padding: 20px; background: rgba(231, 76, 60, 0.1); border-radius: var(--border-radius); border-left: 4px solid var(--danger);">
+                        <div style="font-size: 32px; font-weight: 700; color: var(--danger);">${critical}</div>
+                        <div style="color: var(--text-secondary);">Severidade Crítica</div>
+                    </div>
+                    <div style="padding: 20px; background: rgba(230, 126, 34, 0.1); border-radius: var(--border-radius); border-left: 4px solid #e67e22;">
+                        <div style="font-size: 32px; font-weight: 700; color: #e67e22;">${high}</div>
+                        <div style="color: var(--text-secondary);">Severidade Alta</div>
+                    </div>
+                    <div style="padding: 20px; background: rgba(241, 196, 15, 0.1); border-radius: var(--border-radius); border-left: 4px solid var(--warning);">
+                        <div style="font-size: 32px; font-weight: 700; color: var(--warning);">${severityCounts.medium || 0}</div>
+                        <div style="color: var(--text-secondary);">Severidade Média</div>
+                    </div>
+                    <div style="padding: 20px; background: rgba(52, 152, 219, 0.1); border-radius: var(--border-radius); border-left: 4px solid var(--info);">
+                        <div style="font-size: 32px; font-weight: 700; color: var(--info);">${severityCounts.low || 0}</div>
+                        <div style="color: var(--text-secondary);">Severidade Baixa</div>
+                    </div>
+                </div>
+                ${critical + high > 0 ? `
+                    <div class="alert alert-danger" style="margin-top: 20px;">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Atenção: Existem ${critical + high} controles de alta prioridade que requerem correção imediata.</span>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    async function generateReport() {
+        const appId = document.getElementById('reportAppSelect').value;
+        const reportType = document.getElementById('reportType').value;
+        const format = document.getElementById('reportFormat').value;
+        
+        const options = {
+            include_evidence: document.getElementById('includeEvidence').checked,
+            include_history: document.getElementById('includeHistory').checked,
+            include_tests: document.getElementById('includeTests').checked,
+            include_mappings: document.getElementById('includeMappings').checked,
+            include_recommendations: document.getElementById('includeRecommendations').checked
+        };
+
+        const btn = document.getElementById('generateBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando...';
+
+        try {
+            const params = new URLSearchParams({
+                type: reportType,
+                format: format,
+                ...options
+            });
+
+            const response = await fetch(`/api/reports/generate/${appId}?${params}`, {
+                headers: {
+                    'Authorization': `Bearer ${App.token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Falha ao gerar relatório');
+            }
+
+            // Get filename from header or generate one
+            const contentDisposition = response.headers.get('content-disposition');
+            let filename = `security-report-${appId}.${format}`;
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename="?(.+)"?/);
+                if (match) filename = match[1];
+            }
+
+            // Download file
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+
+            App.toast('Relatório gerado com sucesso!', 'success');
+
+        } catch (error) {
+            App.toast('Erro ao gerar relatório: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-file-export"></i> Gerar Relatório';
+        }
+    }
+
+    async function previewReport() {
+        const appId = document.getElementById('reportAppSelect').value;
+        const reportType = document.getElementById('reportType').value;
+        
+        const modal = document.getElementById('previewModal');
+        const content = document.getElementById('previewContent');
+        
+        content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+        modal.classList.add('active');
+
+        try {
+            const app = await App.api(`/api/applications/${appId}`);
+            const results = await App.api(`/api/results/application/${appId}`);
+
+            let html = generatePreviewHTML(app, results, reportType);
+            content.innerHTML = html;
+
+        } catch (error) {
+            content.innerHTML = `<div class="alert alert-danger">Erro ao gerar prévia: ${error.message}</div>`;
+        }
+    }
+
+    function generatePreviewHTML(app, results, reportType) {
+        // Filter results based on report type
+        let filteredResults = results;
+        if (reportType === 'failed') {
+            filteredResults = results.filter(r => r.status === 'failed');
+        }
+
+        const stats = {
+            total: results.length,
+            approved: results.filter(r => r.status === 'approved').length,
+            failed: results.filter(r => r.status === 'failed').length,
+            in_progress: results.filter(r => r.status === 'in_progress').length,
+            not_started: results.filter(r => r.status === 'not_started').length,
+            na: results.filter(r => r.status === 'na').length
+        };
+
+        const applicable = stats.total - stats.na;
+        const score = applicable > 0 ? Math.round(stats.approved / applicable * 100) : 0;
+
+        const now = new Date().toLocaleDateString('pt-BR', { 
+            day: '2-digit', 
+            month: 'long', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        // Group by category
+        const byCategory = {};
+        filteredResults.forEach(r => {
+            const cat = r.check?.category_code || 'Outros';
+            if (!byCategory[cat]) byCategory[cat] = { name: r.check?.category_name || 'Outros', results: [] };
+            byCategory[cat].results.push(r);
+        });
+
+        return `
+            <div style="font-family: system-ui, sans-serif; color: var(--text-primary);">
+                <!-- Header -->
+                <div style="text-align: center; padding-bottom: 20px; border-bottom: 2px solid var(--accent-primary); margin-bottom: 24px;">
+                    <h1 style="margin: 0; color: var(--accent-primary);">Relatório de Segurança</h1>
+                    <p style="color: var(--text-secondary); margin: 8px 0 0 0;">Gerado em ${now}</p>
+                </div>
+
+                <!-- App Info -->
+                <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); margin-bottom: 24px;">
+                    <h3 style="margin: 0 0 12px 0;">Informações da Aplicação</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+                        <div><strong>Nome:</strong> ${App.escapeHtml(app.name)}</div>
+                        <div><strong>Ambiente:</strong> ${app.environment.toUpperCase()}</div>
+                        <div><strong>URL:</strong> ${App.escapeHtml(app.base_url)}</div>
+                        <div><strong>Responsável:</strong> ${App.escapeHtml(app.responsible || 'N/A')}</div>
+                    </div>
+                </div>
+
+                <!-- Executive Summary -->
+                <div style="margin-bottom: 24px;">
+                    <h3 style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Resumo Executivo</h3>
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; text-align: center; margin-top: 16px;">
+                        <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--border-radius);">
+                            <div style="font-size: 24px; font-weight: 700;">${stats.total}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Total</div>
+                        </div>
+                        <div style="padding: 16px; background: rgba(46, 204, 113, 0.1); border-radius: var(--border-radius);">
+                            <div style="font-size: 24px; font-weight: 700; color: var(--success);">${stats.approved}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Aprovados</div>
+                        </div>
+                        <div style="padding: 16px; background: rgba(231, 76, 60, 0.1); border-radius: var(--border-radius);">
+                            <div style="font-size: 24px; font-weight: 700; color: var(--danger);">${stats.failed}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Reprovados</div>
+                        </div>
+                        <div style="padding: 16px; background: rgba(52, 152, 219, 0.1); border-radius: var(--border-radius);">
+                            <div style="font-size: 24px; font-weight: 700; color: var(--info);">${stats.in_progress}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Em Andamento</div>
+                        </div>
+                        <div style="padding: 16px; background: rgba(255, 215, 0, 0.1); border-radius: var(--border-radius);">
+                            <div style="font-size: 24px; font-weight: 700; color: var(--accent-primary);">${score}%</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Score</div>
+                        </div>
+                    </div>
+                </div>
+
+                ${reportType === 'executive' ? '' : `
+                    <!-- Detailed Results -->
+                    <div>
+                        <h3 style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">Resultados Detalhados</h3>
+                        ${Object.entries(byCategory).map(([code, cat]) => `
+                            <div style="margin-top: 20px;">
+                                <h4 style="color: var(--accent-primary); margin-bottom: 12px;">${code} - ${cat.name}</h4>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                    <thead>
+                                        <tr style="background: var(--bg-tertiary);">
+                                            <th style="padding: 8px; text-align: left; border: 1px solid var(--border-color);">Código</th>
+                                            <th style="padding: 8px; text-align: left; border: 1px solid var(--border-color);">Controle</th>
+                                            <th style="padding: 8px; text-align: center; border: 1px solid var(--border-color);">Severidade</th>
+                                            <th style="padding: 8px; text-align: center; border: 1px solid var(--border-color);">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${cat.results.map(r => `
+                                            <tr>
+                                                <td style="padding: 8px; border: 1px solid var(--border-color);"><code>${r.check?.code || '-'}</code></td>
+                                                <td style="padding: 8px; border: 1px solid var(--border-color);">${App.escapeHtml(r.check?.title || '-')}</td>
+                                                <td style="padding: 8px; text-align: center; border: 1px solid var(--border-color);">
+                                                    <span class="badge ${App.getSeverityClass(r.check?.severity)}">${App.getSeverityLabel(r.check?.severity)}</span>
+                                                </td>
+                                                <td style="padding: 8px; text-align: center; border: 1px solid var(--border-color);">
+                                                    <span class="badge ${App.getStatusClass(r.status)}">${App.getStatusLabel(r.status)}</span>
+                                                </td>
+                                            </tr>
+                                            ${r.status === 'failed' && r.evidence ? `
+                                                <tr>
+                                                    <td colspan="4" style="padding: 8px; border: 1px solid var(--border-color); background: rgba(231, 76, 60, 0.05); font-size: 12px;">
+                                                        <strong>Evidência:</strong> ${App.escapeHtml(r.evidence)}
+                                                    </td>
+                                                </tr>
+                                            ` : ''}
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `).join('')}
+                    </div>
+                `}
+
+                <!-- Footer -->
+                <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-color); text-align: center; font-size: 12px; color: var(--text-secondary);">
+                    Security Checklist - DevSecOps Platform<br>
+                    Relatório gerado automaticamente
+                </div>
+            </div>
+        `;
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    // Close modal on overlay click
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.classList.remove('active');
+            }
+        });
+    });
+
+    // Initial load
+    document.addEventListener('DOMContentLoaded', loadInitialData);
+</script>
+{% endblock %}

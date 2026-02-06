@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Security Checklist{% endblock %}
+
+{% block breadcrumb %}
+<span class="current">Dashboard</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">Visão geral do status de segurança das aplicações</p>
+</div>
+
+<!-- Stats Cards -->
+<div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+        <div class="stat-icon primary">
+            <i class="fas fa-layer-group"></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value" id="totalApps">-</div>
+            <div class="stat-label">Aplicações</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon success">
+            <i class="fas fa-clipboard-check"></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value" id="totalChecks">-</div>
+            <div class="stat-label">Controles de Segurança</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon info">
+            <i class="fas fa-chart-pie"></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value" id="compliance">-</div>
+            <div class="stat-label">Conformidade Geral</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon danger">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <div class="stat-content">
+            <div class="stat-value" id="criticalFindings">-</div>
+            <div class="stat-label">Achados Críticos/Altos</div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Grid -->
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+    <!-- Applications Summary -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Aplicações</h2>
+            <a href="/applications" class="btn btn-secondary btn-sm">
+                <i class="fas fa-plus"></i>
+                <span>Nova Aplicação</span>
+            </a>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Ambiente</th>
+                        <th>Progresso</th>
+                        <th>Issues</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="appsTableBody">
+                    <tr>
+                        <td colspan="5" class="loading">
+                            <div class="spinner"></div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Recent Tests -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Testes Recentes</h2>
+            <a href="/tests" class="btn btn-secondary btn-sm">Ver Todos</a>
+        </div>
+        <div id="recentTests">
+            <div class="loading">
+                <div class="spinner"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Categories Overview -->
+<div class="card" style="margin-top: 24px;">
+    <div class="card-header">
+        <h2 class="card-title">Categorias de Segurança</h2>
+        <a href="/categories" class="btn btn-secondary btn-sm">Ver Detalhes</a>
+    </div>
+    <div id="categoriesGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+        <div class="loading">
+            <div class="spinner"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function loadDashboard() {
+        try {
+            const stats = await App.api('/api/dashboard/stats');
+            
+            // Update stats
+            document.getElementById('totalApps').textContent = stats.total_applications;
+            document.getElementById('totalChecks').textContent = stats.total_checks;
+            document.getElementById('compliance').textContent = stats.overall_compliance + '%';
+            document.getElementById('criticalFindings').textContent = 
+                stats.critical_findings + stats.high_findings;
+
+            // Update apps table
+            const tbody = document.getElementById('appsTableBody');
+            if (stats.applications_summary.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="empty-state">
+                            <p>Nenhuma aplicação cadastrada</p>
+                            <a href="/applications" class="btn btn-primary btn-sm">Criar Aplicação</a>
+                        </td>
+                    </tr>
+                `;
+            } else {
+                tbody.innerHTML = stats.applications_summary.map(app => `
+                    <tr>
+                        <td>
+                            <a href="/applications/${app.id}" style="color: var(--text-primary); text-decoration: none; font-weight: 500;">
+                                ${App.escapeHtml(app.name)}
+                            </a>
+                        </td>
+                        <td>
+                            <span class="badge badge-${app.environment === 'prod' ? 'danger' : app.environment === 'hml' ? 'warning' : 'info'}">
+                                ${app.environment.toUpperCase()}
+                            </span>
+                        </td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div class="progress-bar" style="flex: 1; max-width: 100px;">
+                                    <div class="progress-bar-fill" style="width: ${app.completion}%"></div>
+                                </div>
+                                <span style="font-size: 13px; color: var(--text-secondary);">${app.completion}%</span>
+                            </div>
+                        </td>
+                        <td>
+                            ${app.critical_issues > 0 ? `<span class="badge severity-critical">${app.critical_issues} Crítico</span>` : ''}
+                            ${app.high_issues > 0 ? `<span class="badge severity-high">${app.high_issues} Alto</span>` : ''}
+                            ${app.critical_issues === 0 && app.high_issues === 0 ? '<span class="badge badge-success">OK</span>' : ''}
+                        </td>
+                        <td>
+                            <a href="/checklist?app=${app.id}" class="btn btn-secondary btn-sm">
+                                <i class="fas fa-clipboard-check"></i>
+                            </a>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            // Update recent tests
+            const testsContainer = document.getElementById('recentTests');
+            if (stats.recent_tests.length === 0) {
+                testsContainer.innerHTML = `
+                    <div class="empty-state" style="padding: 30px;">
+                        <i class="fas fa-vial" style="font-size: 32px;"></i>
+                        <p>Nenhum teste executado</p>
+                    </div>
+                `;
+            } else {
+                testsContainer.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        ${stats.recent_tests.slice(0, 5).map(test => `
+                            <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-tertiary); border-radius: var(--border-radius);">
+                                <div style="width: 8px; height: 8px; border-radius: 50%; background: ${
+                                    test.result === 'pass' ? 'var(--success)' : 
+                                    test.result === 'fail' ? 'var(--danger)' : 
+                                    test.result === 'warn' ? 'var(--warning)' : 'var(--text-muted)'
+                                };"></div>
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                        Teste #${test.check_id}
+                                    </div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">
+                                        ${App.formatDate(test.executed_at)}
+                                    </div>
+                                </div>
+                                <span class="badge badge-${test.result === 'pass' ? 'success' : test.result === 'fail' ? 'danger' : 'warning'}">
+                                    ${test.result.toUpperCase()}
+                                </span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // Load categories
+            const categories = await App.api('/api/categories');
+            const categoriesGrid = document.getElementById('categoriesGrid');
+            
+            categoriesGrid.innerHTML = categories.map(cat => `
+                <div style="padding: 20px; background: var(--bg-tertiary); border-radius: var(--border-radius); border: 1px solid var(--border-color);">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                        <div style="width: 40px; height: 40px; background: rgba(255, 215, 0, 0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent-primary);">
+                            <i class="fas ${cat.icon || 'fa-shield-alt'}"></i>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; font-size: 14px;">${App.escapeHtml(cat.name)}</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">${cat.code}</div>
+                        </div>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+                        ${cat.checks_count || 0} controles de segurança
+                    </div>
+                    <a href="/checklist?category=${cat.id}" class="btn btn-secondary btn-sm" style="width: 100%;">
+                        Ver Checklist
+                    </a>
+                </div>
+            `).join('');
+
+        } catch (error) {
+            console.error('Error loading dashboard:', error);
+            App.toast('Erro ao carregar dashboard', 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadDashboard);
+</script>
+{% endblock %}

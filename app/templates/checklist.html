@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+
+{% block title %}Checklist - Security Checklist{% endblock %}
+
+{% block breadcrumb %}
+<a href="/">Dashboard</a>
+<span>/</span>
+<span class="current">Checklist</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div>
+        <h1 class="page-title">Checklist de Segurança</h1>
+        <p class="page-subtitle">Verifique os controles de segurança da aplicação</p>
+    </div>
+</div>
+
+<!-- Application Selector and Filters -->
+<div class="card" style="padding: 16px;">
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+        <div class="form-group" style="margin: 0; min-width: 250px;">
+            <label class="form-label" style="margin-bottom: 4px;">Aplicação</label>
+            <select class="form-select" id="appSelect">
+                <option value="">Selecione uma aplicação...</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin: 0; min-width: 200px;">
+            <label class="form-label" style="margin-bottom: 4px;">Categoria</label>
+            <select class="form-select" id="categoryFilter">
+                <option value="">Todas as Categorias</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin: 0; min-width: 150px;">
+            <label class="form-label" style="margin-bottom: 4px;">Status</label>
+            <select class="form-select" id="statusFilter">
+                <option value="">Todos</option>
+                <option value="not_started">Não Iniciado</option>
+                <option value="in_progress">Em Andamento</option>
+                <option value="approved">Aprovado</option>
+                <option value="failed">Reprovado</option>
+                <option value="na">N/A</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin: 0; min-width: 150px;">
+            <label class="form-label" style="margin-bottom: 4px;">Severidade</label>
+            <select class="form-select" id="severityFilter">
+                <option value="">Todas</option>
+                <option value="critical">Crítico</option>
+                <option value="high">Alto</option>
+                <option value="medium">Médio</option>
+                <option value="low">Baixo</option>
+                <option value="info">Info</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Stats Bar -->
+<div id="statsBar" style="display: none; margin-top: 20px;">
+    <div class="stats-grid" style="grid-template-columns: repeat(6, 1fr);">
+        <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+                <div class="stat-value" id="statTotal" style="font-size: 24px;">0</div>
+                <div class="stat-label">Total</div>
+            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+                <div class="stat-value" id="statApproved" style="font-size: 24px; color: var(--success);">0</div>
+                <div class="stat-label">Aprovados</div>
+            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+                <div class="stat-value" id="statFailed" style="font-size: 24px; color: var(--danger);">0</div>
+                <div class="stat-label">Reprovados</div>
+            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+                <div class="stat-value" id="statProgress" style="font-size: 24px; color: var(--info);">0</div>
+                <div class="stat-label">Em Andamento</div>
+            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+                <div class="stat-value" id="statNotStarted" style="font-size: 24px; color: var(--text-secondary);">0</div>
+                <div class="stat-label">Não Iniciados</div>
+            </div>
+        </div>
+        <div class="stat-card" style="padding: 16px;">
+            <div class="stat-content">
+                <div class="stat-value" id="statCompletion" style="font-size: 24px; color: var(--accent-primary);">0%</div>
+                <div class="stat-label">Conclusão</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Checklist Container -->
+<div id="checklistContainer" style="margin-top: 20px;">
+    <div class="empty-state">
+        <i class="fas fa-clipboard-list"></i>
+        <h3>Selecione uma Aplicação</h3>
+        <p>Escolha uma aplicação para visualizar o checklist de segurança</p>
+    </div>
+</div>
+
+<!-- Check Detail Modal -->
+<div class="modal-overlay" id="checkModal">
+    <div class="modal" style="max-width: 800px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="checkModalTitle">Detalhes do Check</h3>
+            <button class="modal-close" onclick="closeModal('checkModal')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="checkModalBody">
+            <!-- Content loaded dynamically -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentAppId = null;
+    let checkResults = [];
+
+    async function loadInitialData() {
+        // Load applications
+        const apps = await App.api('/api/applications');
+        const appSelect = document.getElementById('appSelect');
+        apps.forEach(app => {
+            const option = document.createElement('option');
+            option.value = app.id;
+            option.textContent = `${app.name} (${app.environment.toUpperCase()})`;
+            appSelect.appendChild(option);
+        });
+
+        // Load categories
+        const categories = await App.api('/api/categories');
+        const catSelect = document.getElementById('categoryFilter');
+        categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.id;
+            option.textContent = `${cat.code} - ${cat.name}`;
+            catSelect.appendChild(option);
+        });
+
+        // Check URL params
+        const params = new URLSearchParams(window.location.search);
+        const appParam = params.get('app');
+        if (appParam) {
+            appSelect.value = appParam;
+            loadChecklist(appParam);
+        }
+    }
+
+    async function loadChecklist(appId) {
+        if (!appId) {
+            document.getElementById('statsBar').style.display = 'none';
+            document.getElementById('checklistContainer').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-clipboard-list"></i>
+                    <h3>Selecione uma Aplicação</h3>
+                    <p>Escolha uma aplicação para visualizar o checklist de segurança</p>
+                </div>
+            `;
+            return;
+        }
+
+        currentAppId = appId;
+        
+        const container = document.getElementById('checklistContainer');
+        container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+        try {
+            // Build query params
+            const params = new URLSearchParams();
+            const category = document.getElementById('categoryFilter').value;
+            const status = document.getElementById('statusFilter').value;
+            const severity = document.getElementById('severityFilter').value;
+            
+            if (category) params.append('category_id', category);
+            if (status) params.append('status_filter', status);
+            if (severity) params.append('severity', severity);
+
+            checkResults = await App.api(`/api/results/application/${appId}?${params}`);
+            
+            // Update stats
+            updateStats();
+            
+            // Group by category
+            const grouped = {};
+            checkResults.forEach(result => {
+                const catCode = result.check?.category_code || 'Outros';
+                const catName = result.check?.category_name || 'Outros';
+                const key = `${catCode}|${catName}`;
+                if (!grouped[key]) {
+                    grouped[key] = [];
+                }
+                grouped[key].push(result);
+            });
+
+            // Render
+            if (checkResults.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-filter"></i>
+                        <h3>Nenhum controle encontrado</h3>
+                        <p>Tente ajustar os filtros</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = Object.entries(grouped).map(([key, results]) => {
+                const [catCode, catName] = key.split('|');
+                return `
+                    <div class="card" style="margin-bottom: 20px;">
+                        <div class="card-header" style="cursor: pointer;" onclick="toggleCategory(this)">
+                            <h2 class="card-title" style="display: flex; align-items: center; gap: 10px;">
+                                <span style="color: var(--accent-primary);">${catCode}</span>
+                                <span>${catName}</span>
+                                <span class="badge badge-neutral">${results.length}</span>
+                            </h2>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="category-content">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 100px;">Código</th>
+                                        <th>Controle</th>
+                                        <th style="width: 100px;">Severidade</th>
+                                        <th style="width: 140px;">Status</th>
+                                        <th style="width: 80px;">Teste</th>
+                                        <th style="width: 100px;">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${results.map(r => renderCheckRow(r)).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+        } catch (error) {
+            console.error('Error loading checklist:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>Erro ao carregar checklist: ${error.message}</span>
+                </div>
+            `;
+        }
+    }
+
+    function renderCheckRow(result) {
+        const check = result.check || {};
+        const hasTest = check.has_automated_test;
+        const lastTest = result.last_test_result;
+        
+        return `
+            <tr data-check-id="${check.id}" data-result-id="${result.id}">
+                <td>
+                    <code style="color: var(--accent-primary); font-size: 13px;">${check.code}</code>
+                </td>
+                <td>
+                    <div style="font-weight: 500; margin-bottom: 4px;">${App.escapeHtml(check.title)}</div>
+                    <div style="font-size: 12px; color: var(--text-secondary); max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        ${App.escapeHtml(check.description || '')}
+                    </div>
+                </td>
+                <td>
+                    <span class="badge ${App.getSeverityClass(check.severity)}">
+                        ${App.getSeverityLabel(check.severity)}
+                    </span>
+                </td>
+                <td>
+                    <select class="form-select" style="padding: 8px; font-size: 13px;" 
+                            onchange="updateStatus(${check.id}, this.value)">
+                        <option value="not_started" ${result.status === 'not_started' ? 'selected' : ''}>Não Iniciado</option>
+                        <option value="in_progress" ${result.status === 'in_progress' ? 'selected' : ''}>Em Andamento</option>
+                        <option value="approved" ${result.status === 'approved' ? 'selected' : ''}>Aprovado</option>
+                        <option value="failed" ${result.status === 'failed' ? 'selected' : ''}>Reprovado</option>
+                        <option value="na" ${result.status === 'na' ? 'selected' : ''}>N/A</option>
+                    </select>
+                </td>
+                <td>
+                    ${hasTest ? `
+                        <button class="btn btn-sm ${lastTest ? (lastTest.result === 'pass' ? 'btn-success' : 'btn-danger') : 'btn-secondary'}" 
+                                onclick="runTest(${check.id})" title="Executar teste automatizado">
+                            <i class="fas fa-play"></i>
+                        </button>
+                    ` : `
+                        <span style="color: var(--text-muted); font-size: 12px;">Manual</span>
+                    `}
+                </td>
+                <td>
+                    <button class="btn btn-secondary btn-sm" onclick="openCheckDetail(${check.id}, ${result.id})" title="Ver detalhes">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+
+    function updateStats() {
+        const stats = {
+            total: checkResults.length,
+            approved: checkResults.filter(r => r.status === 'approved').length,
+            failed: checkResults.filter(r => r.status === 'failed').length,
+            in_progress: checkResults.filter(r => r.status === 'in_progress').length,
+            not_started: checkResults.filter(r => r.status === 'not_started').length,
+            na: checkResults.filter(r => r.status === 'na').length
+        };
+        
+        const applicable = stats.total - stats.na;
+        const completed = stats.approved + stats.failed;
+        const completion = applicable > 0 ? Math.round(completed / applicable * 100) : 0;
+
+        document.getElementById('statTotal').textContent = stats.total;
+        document.getElementById('statApproved').textContent = stats.approved;
+        document.getElementById('statFailed').textContent = stats.failed;
+        document.getElementById('statProgress').textContent = stats.in_progress;
+        document.getElementById('statNotStarted').textContent = stats.not_started;
+        document.getElementById('statCompletion').textContent = completion + '%';
+        
+        document.getElementById('statsBar').style.display = 'block';
+    }
+
+    function toggleCategory(header) {
+        const content = header.nextElementSibling;
+        const icon = header.querySelector('i');
+        
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            icon.classList.remove('fa-chevron-right');
+            icon.classList.add('fa-chevron-down');
+        } else {
+            content.style.display = 'none';
+            icon.classList.remove('fa-chevron-down');
+            icon.classList.add('fa-chevron-right');
+        }
+    }
+
+    async function updateStatus(checkId, status) {
+        try {
+            await App.api(`/api/results?app_id=${currentAppId}&check_id=${checkId}`, {
+                method: 'POST',
+                body: JSON.stringify({ status })
+            });
+            
+            // Update local data
+            const result = checkResults.find(r => r.check?.id === checkId);
+            if (result) {
+                result.status = status;
+                updateStats();
+            }
+            
+            App.toast('Status atualizado', 'success');
+        } catch (error) {
+            App.toast('Erro ao atualizar status', 'error');
+        }
+    }
+
+    async function runTest(checkId) {
+        const btn = event.target.closest('button');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        
+        try {
+            const result = await App.api('/api/tests/execute', {
+                method: 'POST',
+                body: JSON.stringify({
+                    application_id: parseInt(currentAppId),
+                    check_id: checkId
+                })
+            });
+            
+            App.toast(`Teste executado: ${result.result.toUpperCase()}`, 
+                result.result === 'pass' ? 'success' : 
+                result.result === 'fail' ? 'error' : 'warning');
+            
+            // Refresh checklist
+            loadChecklist(currentAppId);
+            
+        } catch (error) {
+            App.toast('Erro ao executar teste: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play"></i>';
+        }
+    }
+
+    async function openCheckDetail(checkId, resultId) {
+        const modal = document.getElementById('checkModal');
+        const body = document.getElementById('checkModalBody');
+        
+        body.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+        modal.classList.add('active');
+
+        try {
+            const check = await App.api(`/api/checks/${checkId}`);
+            const result = checkResults.find(r => r.check?.id === checkId) || {};
+            
+            document.getElementById('checkModalTitle').textContent = `${check.code} - ${check.title}`;
+            
+            body.innerHTML = `
+                <div class="tabs">
+                    <a href="#" class="tab active" onclick="switchTab(event, 'detailsTab')">Detalhes</a>
+                    <a href="#" class="tab" onclick="switchTab(event, 'evidenceTab')">Evidências</a>
+                    <a href="#" class="tab" onclick="switchTab(event, 'historyTab')">Histórico</a>
+                </div>
+
+                <div id="detailsTab" class="tab-content">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+                        <div>
+                            <label style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Severidade</label>
+                            <span class="badge ${App.getSeverityClass(check.severity)}">${App.getSeverityLabel(check.severity)}</span>
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 4px;">Status Atual</label>
+                            <span class="badge ${App.getStatusClass(result.status || 'not_started')}">${App.getStatusLabel(result.status || 'not_started')}</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Descrição</label>
+                        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); font-size: 14px; line-height: 1.6;">
+                            ${App.escapeHtml(check.description)}
+                        </div>
+                    </div>
+
+                    ${check.how_to_validate ? `
+                        <div class="form-group">
+                            <label class="form-label">Como Validar</label>
+                            <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
+${App.escapeHtml(check.how_to_validate)}</div>
+                        </div>
+                    ` : ''}
+
+                    ${check.expected_evidence ? `
+                        <div class="form-group">
+                            <label class="form-label">Evidências Esperadas</label>
+                            <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); font-size: 14px; line-height: 1.6;">
+                                ${App.escapeHtml(check.expected_evidence)}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${check.recommendations ? `
+                        <div class="form-group">
+                            <label class="form-label">Recomendações (se falhar)</label>
+                            <div style="background: var(--danger-bg); padding: 16px; border-radius: var(--border-radius); font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
+${App.escapeHtml(check.recommendations)}</div>
+                        </div>
+                    ` : ''}
+
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                        ${check.mapping_owasp_asvs ? `
+                            <div style="font-size: 12px;">
+                                <span style="color: var(--text-secondary);">OWASP ASVS:</span>
+                                <span style="color: var(--accent-primary);">${check.mapping_owasp_asvs}</span>
+                            </div>
+                        ` : ''}
+                        ${check.mapping_owasp_top10 ? `
+                            <div style="font-size: 12px;">
+                                <span style="color: var(--text-secondary);">OWASP Top 10:</span>
+                                <span style="color: var(--accent-primary);">${check.mapping_owasp_top10}</span>
+                            </div>
+                        ` : ''}
+                        ${check.mapping_cwe ? `
+                            <div style="font-size: 12px;">
+                                <span style="color: var(--text-secondary);">CWE:</span>
+                                <span style="color: var(--accent-primary);">${check.mapping_cwe}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    ${check.has_automated_test ? `
+                        <div style="margin-top: 20px; padding: 16px; background: rgba(255, 215, 0, 0.1); border-radius: var(--border-radius); border: 1px solid rgba(255, 215, 0, 0.3);">
+                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                                <i class="fas fa-robot" style="color: var(--accent-primary);"></i>
+                                <strong>Teste Automatizado Disponível</strong>
+                            </div>
+                            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 16px;">
+                                Este controle possui um teste automatizado que pode ser executado.
+                            </p>
+                            <button class="btn btn-primary" onclick="runTest(${check.id})">
+                                <i class="fas fa-play"></i>
+                                <span>Executar Teste</span>
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div id="evidenceTab" class="tab-content" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">Notas</label>
+                        <textarea class="form-textarea" id="checkNotes" placeholder="Adicione notas sobre a verificação..." rows="4">${result.notes || ''}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Evidências</label>
+                        <textarea class="form-textarea" id="checkEvidence" placeholder="Descreva as evidências coletadas (suporta Markdown)..." rows="6">${result.evidence || ''}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Anexos</label>
+                        <div id="attachmentsList" style="margin-bottom: 16px;">
+                            ${result.attachments && result.attachments.length > 0 ? 
+                                result.attachments.map(a => `
+                                    <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: var(--border-radius); margin-bottom: 8px;">
+                                        <i class="fas fa-file"></i>
+                                        <span style="flex: 1;">${App.escapeHtml(a.original_filename)}</span>
+                                        <span style="font-size: 12px; color: var(--text-secondary);">${(a.file_size / 1024).toFixed(1)} KB</span>
+                                        <button class="btn btn-secondary btn-sm" onclick="deleteAttachment(${a.id})">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                `).join('') 
+                                : '<p style="color: var(--text-secondary); font-size: 14px;">Nenhum anexo</p>'
+                            }
+                        </div>
+                        <input type="file" id="attachmentInput" style="display: none;" onchange="uploadAttachment(${result.id || 0})">
+                        ${result.id ? `
+                            <button class="btn btn-secondary" onclick="document.getElementById('attachmentInput').click()">
+                                <i class="fas fa-upload"></i>
+                                <span>Adicionar Anexo</span>
+                            </button>
+                        ` : '<p style="color: var(--text-muted); font-size: 13px;">Salve o status primeiro para adicionar anexos</p>'}
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Comentário (para histórico)</label>
+                        <input type="text" class="form-input" id="checkComment" placeholder="Comentário opcional sobre a alteração">
+                    </div>
+
+                    <button class="btn btn-primary" onclick="saveEvidence(${check.id})">
+                        <i class="fas fa-save"></i>
+                        <span>Salvar Evidências</span>
+                    </button>
+                </div>
+
+                <div id="historyTab" class="tab-content" style="display: none;">
+                    <div id="historyList">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            `;
+
+            // Load history if result exists
+            if (result.id) {
+                loadHistory(result.id);
+            } else {
+                document.getElementById('historyList').innerHTML = '<p style="color: var(--text-secondary);">Nenhum histórico ainda</p>';
+            }
+
+        } catch (error) {
+            body.innerHTML = `<div class="alert alert-danger">Erro ao carregar detalhes: ${error.message}</div>`;
+        }
+    }
+
+    function switchTab(event, tabId) {
+        event.preventDefault();
+        
+        // Update tab buttons
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+        document.getElementById(tabId).style.display = 'block';
+    }
+
+    async function saveEvidence(checkId) {
+        try {
+            await App.api(`/api/results?app_id=${currentAppId}&check_id=${checkId}`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    notes: document.getElementById('checkNotes').value || null,
+                    evidence: document.getElementById('checkEvidence').value || null,
+                    comment: document.getElementById('checkComment').value || null
+                })
+            });
+            
+            App.toast('Evidências salvas', 'success');
+            loadChecklist(currentAppId);
+        } catch (error) {
+            App.toast('Erro ao salvar: ' + error.message, 'error');
+        }
+    }
+
+    async function loadHistory(resultId) {
+        try {
+            const history = await App.api(`/api/results/${resultId}/history`);
+            const container = document.getElementById('historyList');
+            
+            if (history.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary);">Nenhum histórico ainda</p>';
+                return;
+            }
+
+            container.innerHTML = history.map(h => `
+                <div style="padding: 16px; border-left: 3px solid var(--accent-primary); background: var(--bg-tertiary); margin-bottom: 12px; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <strong>${h.username || 'Sistema'}</strong>
+                        <span style="font-size: 12px; color: var(--text-secondary);">${App.formatDate(h.created_at)}</span>
+                    </div>
+                    <div style="font-size: 14px;">
+                        ${h.old_status ? `
+                            <span class="badge ${App.getStatusClass(h.old_status)}">${App.getStatusLabel(h.old_status)}</span>
+                            <i class="fas fa-arrow-right" style="margin: 0 8px; color: var(--text-muted);"></i>
+                        ` : ''}
+                        <span class="badge ${App.getStatusClass(h.new_status)}">${App.getStatusLabel(h.new_status)}</span>
+                    </div>
+                    ${h.comment ? `<p style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);">"${App.escapeHtml(h.comment)}"</p>` : ''}
+                </div>
+            `).join('');
+        } catch (error) {
+            document.getElementById('historyList').innerHTML = '<p style="color: var(--danger);">Erro ao carregar histórico</p>';
+        }
+    }
+
+    async function uploadAttachment(resultId) {
+        const input = document.getElementById('attachmentInput');
+        const file = input.files[0];
+        
+        if (!file || !resultId) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch(`/api/results/${resultId}/attachments`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${App.token}`
+                },
+                body: formData
+            });
+
+            if (!response.ok) throw new Error('Upload failed');
+
+            App.toast('Arquivo anexado com sucesso', 'success');
+            loadChecklist(currentAppId);
+        } catch (error) {
+            App.toast('Erro ao anexar arquivo', 'error');
+        }
+        
+        input.value = '';
+    }
+
+    async function deleteAttachment(attachmentId) {
+        if (!confirm('Excluir este anexo?')) return;
+        
+        try {
+            await App.api(`/api/results/attachments/${attachmentId}`, { method: 'DELETE' });
+            App.toast('Anexo excluído', 'success');
+            loadChecklist(currentAppId);
+        } catch (error) {
+            App.toast('Erro ao excluir anexo', 'error');
+        }
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    // Event listeners
+    document.getElementById('appSelect').addEventListener('change', (e) => loadChecklist(e.target.value));
+    document.getElementById('categoryFilter').addEventListener('change', () => loadChecklist(currentAppId));
+    document.getElementById('statusFilter').addEventListener('change', () => loadChecklist(currentAppId));
+    document.getElementById('severityFilter').addEventListener('change', () => loadChecklist(currentAppId));
+
+    // Close modal on overlay click
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.classList.remove('active');
+            }
+        });
+    });
+
+    // Initial load
+    document.addEventListener('DOMContentLoaded', loadInitialData);
+</script>
+{% endblock %}

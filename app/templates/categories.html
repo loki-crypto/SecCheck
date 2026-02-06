@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Categorias - Security Checklist{% endblock %}
+
+{% block breadcrumb %}
+<a href="/">Dashboard</a>
+<span>/</span>
+<span class="current">Categorias</span>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Categorias de Segurança</h1>
+        <p class="page-subtitle">Gerencie as categorias e controles de segurança</p>
+    </div>
+</div>
+
+<!-- Categories Grid -->
+<div id="categoriesContainer">
+    <div class="loading"><div class="spinner"></div></div>
+</div>
+
+<!-- Check Detail Modal -->
+<div class="modal-overlay" id="checkDetailModal">
+    <div class="modal" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="checkDetailTitle">Detalhes do Controle</h3>
+            <button class="modal-close" onclick="closeModal('checkDetailModal')">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="checkDetailBody">
+            <!-- Content loaded dynamically -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    async function loadCategories() {
+        const container = document.getElementById('categoriesContainer');
+        
+        try {
+            const categories = await App.api('/api/categories');
+            
+            if (categories.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-folder-open"></i>
+                        <h3>Nenhuma categoria encontrada</h3>
+                        <p>Execute o seed para carregar as categorias padrão</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = categories.map(cat => `
+                <div class="card" style="margin-bottom: 20px;">
+                    <div class="card-header" style="cursor: pointer;" onclick="toggleCategory('cat-${cat.id}')">
+                        <h2 class="card-title" style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 48px; height: 48px; border-radius: var(--border-radius); background: rgba(255, 215, 0, 0.1); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--accent-primary);">
+                                ${cat.code}
+                            </div>
+                            <div>
+                                <div>${App.escapeHtml(cat.name)}</div>
+                                <div style="font-size: 13px; font-weight: 400; color: var(--text-secondary);">${App.escapeHtml(cat.description || '')}</div>
+                            </div>
+                        </h2>
+                        <div style="display: flex; align-items: center; gap: 16px;">
+                            <span class="badge badge-neutral" id="count-${cat.id}">Carregando...</span>
+                            <i class="fas fa-chevron-down" id="icon-${cat.id}"></i>
+                        </div>
+                    </div>
+                    <div id="cat-${cat.id}" class="category-content" style="display: none;">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            `).join('');
+
+            // Load check counts
+            categories.forEach(cat => loadCategoryChecks(cat.id));
+
+        } catch (error) {
+            container.innerHTML = `<div class="alert alert-danger">Erro ao carregar categorias: ${error.message}</div>`;
+        }
+    }
+
+    async function loadCategoryChecks(categoryId) {
+        try {
+            const checks = await App.api(`/api/checks?category_id=${categoryId}`);
+            document.getElementById(`count-${categoryId}`).textContent = `${checks.length} controles`;
+            
+            const content = document.getElementById(`cat-${categoryId}`);
+            
+            if (checks.length === 0) {
+                content.innerHTML = '<p style="padding: 20px; color: var(--text-secondary);">Nenhum controle nesta categoria</p>';
+                return;
+            }
+
+            content.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 100px;">Código</th>
+                            <th>Controle</th>
+                            <th style="width: 100px;">Severidade</th>
+                            <th style="width: 100px;">Teste Auto</th>
+                            <th style="width: 80px;">Detalhes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${checks.map(check => `
+                            <tr>
+                                <td><code style="color: var(--accent-primary);">${check.code}</code></td>
+                                <td>
+                                    <div style="font-weight: 500;">${App.escapeHtml(check.title)}</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); max-width: 500px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                        ${App.escapeHtml(check.description || '')}
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge ${App.getSeverityClass(check.severity)}">
+                                        ${App.getSeverityLabel(check.severity)}
+                                    </span>
+                                </td>
+                                <td>
+                                    ${check.has_automated_test ? 
+                                        '<span style="color: var(--success);"><i class="fas fa-check"></i> Sim</span>' : 
+                                        '<span style="color: var(--text-muted);">Manual</span>'
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-secondary btn-sm" onclick="showCheckDetail(${check.id})">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        } catch (error) {
+            document.getElementById(`cat-${categoryId}`).innerHTML = 
+                `<div class="alert alert-danger" style="margin: 10px;">Erro ao carregar controles</div>`;
+        }
+    }
+
+    function toggleCategory(categoryId) {
+        const content = document.getElementById(categoryId);
+        const icon = document.getElementById(`icon-${categoryId.replace('cat-', '')}`);
+        
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            icon.classList.remove('fa-chevron-down');
+            icon.classList.add('fa-chevron-up');
+        } else {
+            content.style.display = 'none';
+            icon.classList.remove('fa-chevron-up');
+            icon.classList.add('fa-chevron-down');
+        }
+    }
+
+    async function showCheckDetail(checkId) {
+        const modal = document.getElementById('checkDetailModal');
+        const body = document.getElementById('checkDetailBody');
+        
+        body.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+        modal.classList.add('active');
+
+        try {
+            const check = await App.api(`/api/checks/${checkId}`);
+            
+            document.getElementById('checkDetailTitle').textContent = `${check.code} - ${check.title}`;
+            
+            body.innerHTML = `
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-secondary);">Severidade</label>
+                        <div style="margin-top: 4px;">
+                            <span class="badge ${App.getSeverityClass(check.severity)}">
+                                ${App.getSeverityLabel(check.severity)}
+                            </span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-secondary);">Teste Automatizado</label>
+                        <div style="margin-top: 4px;">
+                            ${check.has_automated_test ? 
+                                '<span style="color: var(--success);"><i class="fas fa-check-circle"></i> Disponível</span>' : 
+                                '<span style="color: var(--text-muted);"><i class="fas fa-times-circle"></i> Não disponível</span>'
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: var(--text-secondary);">Categoria</label>
+                        <div style="margin-top: 4px; font-weight: 500;">${check.category_code || 'N/A'}</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Descrição</label>
+                    <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); line-height: 1.6;">
+                        ${App.escapeHtml(check.description)}
+                    </div>
+                </div>
+
+                ${check.how_to_validate ? `
+                    <div class="form-group">
+                        <label class="form-label">Como Validar</label>
+                        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); white-space: pre-wrap; line-height: 1.6; font-size: 14px;">
+${App.escapeHtml(check.how_to_validate)}</div>
+                    </div>
+                ` : ''}
+
+                ${check.expected_evidence ? `
+                    <div class="form-group">
+                        <label class="form-label">Evidências Esperadas</label>
+                        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: var(--border-radius); line-height: 1.6;">
+                            ${App.escapeHtml(check.expected_evidence)}
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${check.recommendations ? `
+                    <div class="form-group">
+                        <label class="form-label">Recomendações de Correção</label>
+                        <div style="background: rgba(231, 76, 60, 0.1); padding: 16px; border-radius: var(--border-radius); border-left: 4px solid var(--danger); white-space: pre-wrap; line-height: 1.6; font-size: 14px;">
+${App.escapeHtml(check.recommendations)}</div>
+                    </div>
+                ` : ''}
+
+                <div style="display: flex; flex-wrap: wrap; gap: 16px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                    ${check.mapping_owasp_asvs ? `
+                        <div style="padding: 8px 16px; background: rgba(52, 152, 219, 0.1); border-radius: var(--border-radius);">
+                            <span style="font-size: 11px; color: var(--text-secondary);">OWASP ASVS</span><br>
+                            <span style="color: var(--info); font-weight: 500;">${check.mapping_owasp_asvs}</span>
+                        </div>
+                    ` : ''}
+                    ${check.mapping_owasp_top10 ? `
+                        <div style="padding: 8px 16px; background: rgba(231, 76, 60, 0.1); border-radius: var(--border-radius);">
+                            <span style="font-size: 11px; color: var(--text-secondary);">OWASP Top 10</span><br>
+                            <span style="color: var(--danger); font-weight: 500;">${check.mapping_owasp_top10}</span>
+                        </div>
+                    ` : ''}
+                    ${check.mapping_cwe ? `
+                        <div style="padding: 8px 16px; background: rgba(241, 196, 15, 0.1); border-radius: var(--border-radius);">
+                            <span style="font-size: 11px; color: var(--text-secondary);">CWE</span><br>
+                            <span style="color: var(--warning); font-weight: 500;">${check.mapping_cwe}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        } catch (error) {
+            body.innerHTML = `<div class="alert alert-danger">Erro ao carregar detalhes: ${error.message}</div>`;
+        }
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    // Close modal on overlay click
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.classList.remove('active');
+            }
+        });
+    });
+
+    // Initial load
+    document.addEventListener('DOMContentLoaded', loadCategories);
+</script>
+{% endblock %}
