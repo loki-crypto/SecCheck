@@ -4,6 +4,7 @@
   <img src="https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/FastAPI-0.109+-green?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/Docker-Ready-blue?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/OWASP-Compliant-orange?style=for-the-badge&logo=owasp&logoColor=white" alt="OWASP">
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="License">
 </p>
 
@@ -227,14 +228,55 @@ http://localhost:8000
 
 Esta aplicação foi desenvolvida seguindo boas práticas de segurança:
 
-- ✅ **Autenticação JWT** com tokens seguros e expiração
+### 🛡️ Proteções Implementadas
+
+- ✅ **Autenticação JWT** com tokens seguros e expiração configurável
 - ✅ **Senhas com hash bcrypt** (nunca armazenadas em texto plano)
 - ✅ **Rate limiting** para proteção contra brute force
-- ✅ **Validação de entrada** com Pydantic
+- ✅ **Validação de entrada** com Pydantic schemas
 - ✅ **Escape de output** para prevenção de XSS
 - ✅ **CORS configurável** para controle de origens
-- ✅ **Logs de auditoria** para rastreabilidade
+- ✅ **Logs estruturados** em formato JSON para SIEM
 - ✅ **Endpoints de documentação ocultos** em produção
+
+### 🔑 SECRET_KEY Seguro
+
+- Geração automática com `secrets.token_urlsafe(64)` (86 caracteres)
+- Persistência em arquivo com permissões `0600` (apenas owner)
+- Mantido entre reinicializações do container
+- Nunca commitado no repositório (`.gitignore`)
+
+### 🚫 Proteção Anti-SSRF
+
+O executor de testes implementa validação rigorosa de URLs:
+
+```python
+# URLs bloqueadas automaticamente:
+- localhost, 127.0.0.1, ::1
+- Redes privadas (10.x, 172.16.x, 192.168.x)
+- Link-local (169.254.x.x)
+- Cloud metadata endpoints (169.254.169.254)
+- Schemes não permitidos (apenas http/https)
+- Hostnames que resolvem para IPs internos
+```
+
+### 📝 JSON Structured Logging
+
+Logs estruturados para fácil integração com ferramentas de monitoramento:
+
+```json
+{
+  "timestamp": "2026-02-06T19:15:21.418436Z",
+  "level": "INFO",
+  "logger": "root",
+  "message": "Starting Security Checklist Application",
+  "module": "main",
+  "function": "lifespan",
+  "line": 35
+}
+```
+
+Campos extras suportados: `user_id`, `ip_address`, `request_id`, `action`, `duration_ms`
 
 ---
 
@@ -260,8 +302,8 @@ Os testes são **seguros por design** - apenas verificam configurações, **não
 ### Variáveis de Ambiente
 
 ```env
-# Segurança (OBRIGATÓRIO mudar em produção)
-SECRET_KEY=sua-chave-secreta-muito-segura-aqui
+# Segurança (gerado automaticamente se não definido)
+# SECRET_KEY=sua-chave-secreta-muito-segura-aqui
 
 # Banco de dados
 DATABASE_URL=sqlite+aiosqlite:///./data/security_checklist.db
@@ -271,8 +313,12 @@ HOST=0.0.0.0
 PORT=8000
 DEBUG=false
 
-# CORS (separar por vírgula)
-CORS_ORIGINS=http://localhost:8000,http://localhost:3000
+# CORS (JSON array)
+CORS_ORIGINS=["http://localhost:8000","http://127.0.0.1:8000"]
+
+# Logging
+LOG_LEVEL=INFO
+LOG_JSON_FORMAT=true
 ```
 
 ---
@@ -284,15 +330,28 @@ CORS_ORIGINS=http://localhost:8000,http://localhost:3000
 # Subir containers
 docker compose up -d
 
-# Ver logs
+# Ver logs (formato JSON estruturado)
 docker logs -f security-checklist
+
+# Ver apenas logs JSON parseados
+docker logs security-checklist 2>&1 | grep -E '^\{'
 
 # Parar
 docker compose down
 
 # Rebuild completo
 docker compose build --no-cache && docker compose up -d
+
+# Verificar saúde
+curl http://localhost:8000/health
 ```
+
+### Volumes Persistentes
+
+| Volume | Caminho | Descrição |
+|--------|---------|-----------|
+| `security_data` | `/app/data` | Banco SQLite + SECRET_KEY |
+| `security_uploads` | `/app/uploads` | Arquivos enviados |
 
 ---
 

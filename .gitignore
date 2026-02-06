@@ -77,13 +77,8 @@ uploads/*
 .env
 !.env.example
 
-# Logs
-logs/
-*.log
+# Secrets (NEVER commit these)
+.secret_key
+*.key
+*.pem
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Reports output
-reports_output/

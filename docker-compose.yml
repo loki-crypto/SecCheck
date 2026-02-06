@@ -8,13 +8,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - SECRET_KEY=devsecops-security-checklist-secret-key-2024
+      # SECRET_KEY é gerado automaticamente se não definido
+      # Para produção, defina via: SECRET_KEY=sua-chave-segura
       - DATABASE_URL=sqlite+aiosqlite:///./data/security_checklist.db
       - HOST=0.0.0.0
       - PORT=8000
       - DEBUG=false
       - UPLOAD_DIR=/app/uploads
       - CORS_ORIGINS=["http://localhost:8000","http://127.0.0.1:8000"]
+      - LOG_LEVEL=INFO
+      - LOG_JSON_FORMAT=true
     volumes:
       - security_data:/app/data
       - security_uploads:/app/uploads

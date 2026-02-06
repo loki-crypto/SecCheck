@@ -17,42 +17,51 @@ from fastapi.middleware.cors import CORSMiddleware
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.config import settings
+from app.config import settings, setup_logging
 from app.database import engine, async_session, Base
 from app.routes import router as api_router
 from app.auth import get_current_user_optional
 from app.seed_data import seed_database
+from app.models import UserRole
+
+# Initialize structured logging
+logger = setup_logging()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     # Startup
-    print("🚀 Starting Security Checklist Application...")
+    logger.info("Starting Security Checklist Application", extra={
+        "event": "app_startup",
+        "app_name": settings.APP_NAME,
+        "environment": "production" if not settings.DEBUG else "development"
+    })
     
     # Create database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    print("✅ Database tables created")
+    logger.info("Database tables created", extra={"event": "db_init"})
     
     # Seed initial data
     async with async_session() as session:
         await seed_database(session)
-    print("✅ Database seeded with initial data")
+    logger.info("Database seeded with initial data", extra={"event": "db_seed"})
     
     # Create upload directory
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    print(f"✅ Upload directory ready: {upload_dir}")
+    logger.info(f"Upload directory ready: {upload_dir}", extra={"event": "dir_init"})
     
-    print("=" * 50)
-    print(f"🔐 Security Checklist running on http://localhost:{settings.PORT}")
-    print("=" * 50)
+    logger.info(
+        f"Security Checklist running on http://localhost:{settings.PORT}",
+        extra={"event": "app_ready", "port": settings.PORT}
+    )
     
     yield
     
     # Shutdown
-    print("👋 Shutting down...")
+    logger.info("Shutting down application", extra={"event": "app_shutdown"})
     await engine.dispose()
 
 
@@ -97,7 +106,7 @@ async def index(request: Request, user=Depends(get_current_user_optional)):
     """Dashboard page"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user, "active_page": "dashboard"})
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -113,7 +122,7 @@ async def applications_page(request: Request, user=Depends(get_current_user_opti
     """Applications management page"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("applications.html", {"request": request, "user": user})
+    return templates.TemplateResponse("applications.html", {"request": request, "user": user, "active_page": "applications"})
 
 
 @app.get("/checklist", response_class=HTMLResponse)
@@ -121,7 +130,7 @@ async def checklist_page(request: Request, user=Depends(get_current_user_optiona
     """Checklist page"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("checklist.html", {"request": request, "user": user})
+    return templates.TemplateResponse("checklist.html", {"request": request, "user": user, "active_page": "checklist"})
 
 
 @app.get("/tests", response_class=HTMLResponse)
@@ -129,7 +138,7 @@ async def tests_page(request: Request, user=Depends(get_current_user_optional)):
     """Automated tests page"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("tests.html", {"request": request, "user": user})
+    return templates.TemplateResponse("tests.html", {"request": request, "user": user, "active_page": "tests"})
 
 
 @app.get("/reports", response_class=HTMLResponse)
@@ -137,7 +146,7 @@ async def reports_page(request: Request, user=Depends(get_current_user_optional)
     """Reports page"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("reports.html", {"request": request, "user": user})
+    return templates.TemplateResponse("reports.html", {"request": request, "user": user, "active_page": "reports"})
 
 
 @app.get("/users", response_class=HTMLResponse)
@@ -145,9 +154,9 @@ async def users_page(request: Request, user=Depends(get_current_user_optional)):
     """User management page (admin only)"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    if user.role != "admin":
+    if user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
-    return templates.TemplateResponse("users.html", {"request": request, "user": user})
+    return templates.TemplateResponse("users.html", {"request": request, "user": user, "active_page": "users"})
 
 
 @app.get("/categories", response_class=HTMLResponse)
@@ -155,7 +164,7 @@ async def categories_page(request: Request, user=Depends(get_current_user_option
     """Categories page"""
     if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("categories.html", {"request": request, "user": user})
+    return templates.TemplateResponse("categories.html", {"request": request, "user": user, "active_page": "categories"})
 
 
 @app.get("/settings", response_class=HTMLResponse)

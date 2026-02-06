@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/data /app/uploads /app/app/static && \
+RUN mkdir -p /app/data /app/uploads /app/app/static /app/secrets /app/logs && \
     chmod -R 755 /app
 
 # Create non-root user for security

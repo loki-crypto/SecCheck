@@ -6,13 +6,185 @@ import httpx
 import asyncio
 import re
 import json
-from typing import Optional, Dict, Any, List
+import socket
+import ipaddress
+from urllib.parse import urlparse
+from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class URLValidationError(Exception):
+    """Raised when URL validation fails"""
+    pass
+
+
+class URLValidator:
+    """
+    Validates URLs to prevent SSRF and other URL-based attacks.
+    Blocks access to private networks, localhost, and dangerous schemes.
+    """
+    
+    # Private/internal IP ranges that should be blocked
+    BLOCKED_IP_RANGES = [
+        ipaddress.ip_network('10.0.0.0/8'),        # Private Class A
+        ipaddress.ip_network('172.16.0.0/12'),     # Private Class B
+        ipaddress.ip_network('192.168.0.0/16'),    # Private Class C
+        ipaddress.ip_network('127.0.0.0/8'),       # Loopback
+        ipaddress.ip_network('169.254.0.0/16'),    # Link-local
+        ipaddress.ip_network('0.0.0.0/8'),         # Current network
+        ipaddress.ip_network('224.0.0.0/4'),       # Multicast
+        ipaddress.ip_network('240.0.0.0/4'),       # Reserved
+        ipaddress.ip_network('255.255.255.255/32'), # Broadcast
+        ipaddress.ip_network('100.64.0.0/10'),     # Carrier-grade NAT
+        ipaddress.ip_network('198.18.0.0/15'),     # Benchmark testing
+        ipaddress.ip_network('198.51.100.0/24'),   # TEST-NET-2
+        ipaddress.ip_network('203.0.113.0/24'),    # TEST-NET-3
+        ipaddress.ip_network('192.0.0.0/24'),      # IETF Protocol Assignments
+        ipaddress.ip_network('192.0.2.0/24'),      # TEST-NET-1
+    ]
+    
+    # IPv6 blocked ranges
+    BLOCKED_IPV6_RANGES = [
+        ipaddress.ip_network('::1/128'),           # Loopback
+        ipaddress.ip_network('::/128'),            # Unspecified
+        ipaddress.ip_network('fc00::/7'),          # Unique local
+        ipaddress.ip_network('fe80::/10'),         # Link-local
+        ipaddress.ip_network('ff00::/8'),          # Multicast
+        ipaddress.ip_network('::ffff:0:0/96'),     # IPv4-mapped (check actual IP)
+    ]
+    
+    # Allowed URL schemes
+    ALLOWED_SCHEMES = {'http', 'https'}
+    
+    # Blocked hostnames
+    BLOCKED_HOSTNAMES = {
+        'localhost',
+        'localhost.localdomain',
+        'local',
+        '0.0.0.0',
+        '127.0.0.1',
+        '::1',
+        '[::1]',
+        'metadata.google.internal',  # Cloud metadata
+        '169.254.169.254',           # AWS/Azure/GCP metadata
+        'metadata.gcp.internal',
+        'kubernetes.default.svc',
+    }
+    
+    @classmethod
+    def validate_url(cls, url: str, allow_internal: bool = False) -> Tuple[bool, str]:
+        """
+        Validates a URL for security.
+        
+        Args:
+            url: The URL to validate
+            allow_internal: If True, allows internal/private IPs (use with caution)
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not url:
+            return False, "URL cannot be empty"
+        
+        # Parse URL
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            return False, f"Invalid URL format: {str(e)}"
+        
+        # Check scheme
+        if not parsed.scheme:
+            return False, "URL must have a scheme (http or https)"
+        
+        if parsed.scheme.lower() not in cls.ALLOWED_SCHEMES:
+            return False, f"Scheme '{parsed.scheme}' not allowed. Use http or https"
+        
+        # Check hostname exists
+        if not parsed.hostname:
+            return False, "URL must have a hostname"
+        
+        hostname = parsed.hostname.lower()
+        
+        # Check blocked hostnames
+        if hostname in cls.BLOCKED_HOSTNAMES:
+            return False, f"Hostname '{hostname}' is not allowed"
+        
+        # Check for IP address in hostname
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if not allow_internal:
+                # Check IPv4 blocked ranges
+                if isinstance(ip, ipaddress.IPv4Address):
+                    for network in cls.BLOCKED_IP_RANGES:
+                        if ip in network:
+                            return False, f"IP address {ip} is in blocked range {network}"
+                
+                # Check IPv6 blocked ranges
+                elif isinstance(ip, ipaddress.IPv6Address):
+                    for network in cls.BLOCKED_IPV6_RANGES:
+                        if ip in network:
+                            return False, f"IPv6 address {ip} is in blocked range {network}"
+        except ValueError:
+            # Not an IP address, it's a hostname - resolve it
+            if not allow_internal:
+                try:
+                    # Resolve hostname to IP
+                    resolved_ips = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                    
+                    for family, socktype, proto, canonname, sockaddr in resolved_ips:
+                        ip_str = sockaddr[0]
+                        try:
+                            ip = ipaddress.ip_address(ip_str)
+                            
+                            if isinstance(ip, ipaddress.IPv4Address):
+                                for network in cls.BLOCKED_IP_RANGES:
+                                    if ip in network:
+                                        return False, f"Hostname '{hostname}' resolves to blocked IP {ip}"
+                            
+                            elif isinstance(ip, ipaddress.IPv6Address):
+                                for network in cls.BLOCKED_IPV6_RANGES:
+                                    if ip in network:
+                                        return False, f"Hostname '{hostname}' resolves to blocked IPv6 {ip}"
+                        except ValueError:
+                            continue
+                            
+                except socket.gaierror as e:
+                    return False, f"Cannot resolve hostname '{hostname}': {str(e)}"
+        
+        # Check for suspicious patterns
+        if '..' in hostname:
+            return False, "Hostname contains suspicious pattern '..'"
+        
+        # Check port (optional, some services block non-standard ports)
+        if parsed.port:
+            if parsed.port < 1 or parsed.port > 65535:
+                return False, f"Invalid port number: {parsed.port}"
+        
+        # Check for username/password in URL (potential security issue)
+        if parsed.username or parsed.password:
+            logger.warning(f"URL contains credentials - this may be a security risk")
+        
+        return True, "URL is valid"
+    
+    @classmethod
+    def sanitize_url(cls, url: str) -> str:
+        """
+        Sanitizes a URL by ensuring proper encoding.
+        """
+        parsed = urlparse(url)
+        # Reconstruct URL without username/password
+        clean_url = f"{parsed.scheme}://{parsed.hostname}"
+        if parsed.port:
+            clean_url += f":{parsed.port}"
+        clean_url += parsed.path or "/"
+        if parsed.query:
+            clean_url += f"?{parsed.query}"
+        return clean_url
 
 
 class TestType(str, Enum):
@@ -43,8 +215,9 @@ class SecurityTestExecutor:
     All tests are defensive and do not attempt exploitation.
     """
     
-    def __init__(self, timeout: int = 10):
+    def __init__(self, timeout: int = 10, allow_internal_urls: bool = False):
         self.timeout = timeout
+        self.allow_internal_urls = allow_internal_urls
         self.client = None
     
     async def __aenter__(self):
@@ -59,6 +232,13 @@ class SecurityTestExecutor:
         if self.client:
             await self.client.aclose()
     
+    def validate_target_url(self, url: str) -> Tuple[bool, str]:
+        """
+        Validates the target URL before making any requests.
+        Returns (is_valid, error_message)
+        """
+        return URLValidator.validate_url(url, allow_internal=self.allow_internal_urls)
+    
     async def execute_test(
         self, 
         test_type: str, 
@@ -67,6 +247,23 @@ class SecurityTestExecutor:
     ) -> TestResult:
         """Execute a security test based on type"""
         start_time = datetime.utcnow()
+        
+        # Validate URL before any test execution
+        is_valid, error_msg = self.validate_target_url(target_url)
+        if not is_valid:
+            duration = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+            logger.warning(f"URL validation failed for '{target_url}': {error_msg}")
+            return TestResult(
+                passed=False,
+                result="error",
+                message=f"URL Validation Failed: {error_msg}",
+                details={
+                    "error": "url_validation_failed",
+                    "url": target_url,
+                    "reason": error_msg
+                },
+                duration_ms=duration
+            )
         
         try:
             config = config or {}
