@@ -9,6 +9,8 @@ LABEL description="Security Checklist - DevSecOps Platform"
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV HOST=0.0.0.0
+ENV PORT=9090
 
 # Set work directory
 WORKDIR /app
@@ -41,11 +43,11 @@ RUN adduser --disabled-password --gecos '' --uid 1000 appuser && \
 USER appuser
 
 # Expose port
-EXPOSE 8000
+EXPOSE 9090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-9090}/health || exit 1
 
 # Run application with uvicorn for production
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python -m uvicorn main:app --host ${HOST:-0.0.0.0} --port ${PORT:-9090}"]
